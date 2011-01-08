@@ -4,18 +4,8 @@ import os
 import shutil
 from datetime import datetime
 from codecs import open as _open
-import codecs
-
-def update_dict(mapping, key, value):
-    """Update a dict intenal list
-
-    :param mapping: the mapping to update
-    :param key: the key of the mapping to update.
-    :param value: the value to append to the list.
-    """
-    if key not in mapping:
-        mapping[key] = []
-    mapping[key].append(value)
+from itertools import groupby
+from operator import attrgetter
 
 
 def get_date(string):
@@ -52,17 +42,20 @@ def slugify(value):
     value = unicode(re.sub('[^\w\s-]', '', value).strip().lower())
     return re.sub('[-\s]+', '-', value)
 
-def copytree(path, origin, destination):
+def copytree(path, origin, destination, topath=None):
     """Copy path from origin to destination, silent any errors"""
-
+    
+    if not topath:
+        topath = path
     try:
         fromp = os.path.expanduser(os.path.join(origin, path))
-        to = os.path.expanduser(os.path.join(destination, path))
+        to = os.path.expanduser(os.path.join(destination, topath))
         shutil.copytree(fromp, to)
-        print u' [ok] copying %s' % fromp
+        print u' [ok] copying %s to %s' % (fromp, to)
 
     except OSError:
         pass
+
 
 def clean_output_dir(path):
     """Remove all the files from the output directory"""
@@ -72,6 +65,12 @@ def clean_output_dir(path):
         shutil.rmtree(path)
     except Exception as e:
         pass
+
+
+def get_relative_path(filename):
+    """Return the relative path to the given filename"""
+    return '../' * filename.count('/') + '.'
+
 
 def truncate_html_words(s, num, end_text='...'):
     """Truncates HTML to a certain number of words (not counting tags and
@@ -140,3 +139,39 @@ def truncate_html_words(s, num, end_text='...'):
     # Return string
     return out
 
+
+def process_translations(content_list):
+    """ Finds all translation and returns
+        tuple with two lists (index, translations).
+        Index list includes items in default language
+        or items which have no variant in default language.
+
+        Also, for each content_list item, it
+        sets attribute 'translations'
+    """
+    content_list.sort(key=attrgetter('slug'))
+    grouped_by_slugs = groupby(content_list, attrgetter('slug'))
+    index = []
+    translations = []
+
+    for slug, items in grouped_by_slugs:
+        items = list(items)
+        # find items with default language
+        default_lang_items = filter(
+            attrgetter('in_default_lang'),
+            items
+        )
+        len_ = len(default_lang_items)
+        if len_ > 1:
+            print u' [warning] there are %s variants of "%s"' % (len_, slug)
+        elif len_ == 0:
+            default_lang_items = items[:1]
+
+        index.extend(default_lang_items)
+        translations.extend(filter(
+            lambda x: x not in default_lang_items,
+            items
+        ))
+        for a in items:
+            a.translations = filter(lambda x: x != a, items)
+    return index, translations
