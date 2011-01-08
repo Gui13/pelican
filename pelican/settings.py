@@ -20,7 +20,10 @@ _DEFAULT_CONFIG = {'PATH': None,
                    'REVERSE_ARCHIVE_ORDER': False,
                    'KEEP_OUTPUT_DIRECTORY': False,
                    'CLEAN_URLS': False, # use /blah/ instead /blah.html in urls
+                   'RELATIVE_URLS': True,
                    'DEFAULT_LANG': 'en',
+                   'PELICAN_CLASS': 'pelican.Pelican',
+                   'JINJA_EXTENSIONS': [],
                   }
 
 def read_settings(filename):

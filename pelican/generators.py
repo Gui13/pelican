@@ -1,5 +1,6 @@
 from operator import attrgetter
 from itertools import chain
+from functools import partial
 from datetime import datetime
 from collections import defaultdict
 import os
@@ -7,7 +8,7 @@ import os
 from jinja2 import Environment, FileSystemLoader
 from jinja2.exceptions import TemplateNotFound
 
-from pelican.utils import update_dict, copytree, process_translations, open
+from pelican.utils import copytree, get_relative_path, process_translations, open
 from pelican.contents import Article, Page, is_valid_content
 from pelican.readers import read_file
 
@@ -33,7 +34,7 @@ class Generator(object):
         templates ready to use with Jinja2.
         """
         path = os.path.expanduser(os.path.join(self.theme, 'templates'))
-        env = Environment(loader=FileSystemLoader(path))
+        env = Environment(loader=FileSystemLoader(path),extensions=self.settings.get('JINJA_EXTENSIONS', []))
         templates = {}
         for template in _TEMPLATES:
             try:
@@ -80,8 +81,8 @@ class ArticlesGenerator(Generator):
         self.articles = [] # only articles in default language
         self.translations = []
         self.dates = {}
-        self.tags = {}
-        self.categories = {}
+        self.tags = defaultdict(list)
+        self.categories = defaultdict(list)
         super(ArticlesGenerator, self).__init__(*args, **kwargs)
 
     def generate_feeds(self, writer):
@@ -114,7 +115,7 @@ class ArticlesGenerator(Generator):
                             self.settings['TAG_FEED_RSS'] % tag, feed_type='rss')
 
         translations_feeds = defaultdict(list)
-        for article in self.translations:
+        for article in chain(self.articles, self.translations):
             translations_feeds[article.lang].append(article)
 
         for lang, items in translations_feeds.items():
@@ -128,20 +129,29 @@ class ArticlesGenerator(Generator):
         TODO: change the name"""
 
         templates = self.get_templates()
-        write = writer.write_file
+        write = partial(
+            writer.write_file,
+            relative_urls = self.settings.get('RELATIVE_URLS')
+        )
+        # to minimize the number of relative path stuff modification in writer, articles pass first
+        for article in chain(self.translations, self.articles):
+            write('%s' % article.save_as,
+                templates['article'], self.context, article=article,
+                category=article.category)
+
         for template in _DIRECT_TEMPLATES:
             write('%s.html' % template, templates[template], self.context,
-                    blog=True)
+                blog=True)
+
+        # and subfolders after that
         for tag, articles in self.tags.items():
-            write('tag/%s.html' % tag, templates['tag'], self.context, tag=tag,
-                    articles=articles)
+            for article in articles:
+                write('tag/%s.html' % tag, templates['tag'], self.context,
+                    tag=tag, articles=articles)
+
         for cat in self.categories:
             write('category/%s.html' % cat, templates['category'], self.context,
-                          category=cat, articles=self.categories[cat])
-        for article in chain(self.translations, self.articles):
-            write(article.save_as,
-                          templates['article'], self.context, article=article,
-                          category=article.category)
+                category=cat, articles=self.categories[cat])
 
     def generate_context(self):
         """change the context"""
@@ -174,14 +184,14 @@ class ArticlesGenerator(Generator):
 
             if hasattr(article, 'tags'):
                 for tag in article.tags:
-                    update_dict(self.tags, tag, article)
+                    self.tags[tag].append(article)
             all_articles.append(article)
 
         self.articles, self.translations = process_translations(all_articles)
 
         for article in self.articles:
             # only main articles are listed in categories, not translations
-            update_dict(self.categories, article.category, article)
+            self.categories[article.category].append(article)
 
 
         # sort the articles by date
@@ -223,7 +233,8 @@ class PagesGenerator(Generator):
         templates = self.get_templates()
         for page in chain(self.translations, self.pages):
             writer.write_file('pages/%s' % page.save_as, templates['page'],
-                    self.context, page=page)
+                    self.context, page=page,
+                    relative_urls = self.settings.get('RELATIVE_URLS'))
 
 
 class StaticGenerator(Generator):
